@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Data cache (large / regenerable)
+data/raw/
+data/cache/
+*.parquet
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Streamlit
+.streamlit/secrets.toml
