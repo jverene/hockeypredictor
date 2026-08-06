@@ -64,13 +64,17 @@ def _get_json(url: str, params: dict | None, namespace: str, key: str, refresh: 
     for attempt in range(_RETRIES):
         try:
             resp = requests.get(url, params=params, timeout=_TIMEOUT)
+            if resp.status_code == 429:
+                wait = float(resp.headers.get("Retry-After", 5 * (attempt + 1)))
+                time.sleep(min(wait, 60))
+                continue
             resp.raise_for_status()
             payload = resp.json()
             path.write_text(json.dumps(payload))
             return payload
         except Exception as err:  # noqa: BLE001 - retried below
             last_err = err
-            time.sleep(1.5 * (attempt + 1))
+            time.sleep(min(2**attempt * 2.0, 60))
     raise RuntimeError(f"GET {url} failed after {_RETRIES} attempts: {last_err}")
 
 
@@ -140,8 +144,16 @@ def fetch_team_meta(refresh: bool = False) -> pd.DataFrame:
 
 
 def fetch_player_bio(player_id: int, refresh: bool = False) -> dict:
-    """Bio + draft details for one player."""
-    payload = _get_json(f"{API_WEB}/player/{player_id}/landing", None, "bio", str(player_id), refresh)
+    """Bio + draft details for one player.
+
+    On persistent API failure (e.g. rate limiting), returns a stub with null
+    fields instead of raising — XGBoost handles NaN features, and a cached
+    stub can be re-pulled later with refresh=True.
+    """
+    try:
+        payload = _get_json(f"{API_WEB}/player/{player_id}/landing", None, "bio", str(player_id), refresh)
+    except RuntimeError:
+        return {"playerId": player_id}
     draft = payload.get("draftDetails") or {}
     return {
         "playerId": payload.get("playerId"),
@@ -157,7 +169,7 @@ def fetch_player_bio(player_id: int, refresh: bool = False) -> dict:
     }
 
 
-def fetch_all_bios(player_ids: list[int], refresh: bool = False, workers: int = 6) -> pd.DataFrame:
+def fetch_all_bios(player_ids: list[int], refresh: bool = False, workers: int = 3) -> pd.DataFrame:
     """Bios for many players, cached individually. Polite parallelism."""
     missing = [pid for pid in player_ids if refresh or not _cache_path("bio", str(pid)).exists()]
     total = len(player_ids)
