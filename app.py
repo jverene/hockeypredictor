@@ -20,6 +20,14 @@ OUTPUT_DIR = Path(__file__).resolve().parent / "data" / "output"
 st.set_page_config(page_title="Hockey Career Trajectory Predictor", layout="wide")
 
 
+def _add_season_marker(fig: go.Figure, label: str, note: str) -> None:
+    """Vertical marker on a categorical x-axis (add_vline chokes on string categories)."""
+    fig.add_shape(type="line", x0=label, x1=label, y0=0, y1=1, yref="paper",
+                  line=dict(dash="dot"), opacity=0.4)
+    fig.add_annotation(x=label, y=1, yref="paper", text=note, showarrow=False,
+                       font=dict(size=9), textangle=-90, xanchor="right")
+
+
 @st.cache_data
 def load_outputs() -> dict[str, pd.DataFrame]:
     out = {}
@@ -102,12 +110,12 @@ with tab_player:
     for sid, note in SHORTENED_SEASONS.items():
         label = season_label(sid)
         if label in set(player["season"]):
-            fig.add_vline(x=label, line_dash="dot", opacity=0.4, annotation_text=note)
+            _add_season_marker(fig, label, note)
     fig.update_layout(yaxis_title="Points per game", xaxis_title="Season", height=480)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     cols = ["season", "gp", "goals", "assists", "points", "ppg"]
-    st.dataframe(player[cols].rename(columns=str.upper), use_container_width=True, hide_index=True)
+    st.dataframe(player[cols].rename(columns=str.upper), width="stretch", hide_index=True)
 
 # ---------------------------------------------------------------------------
 # Tab 2: backtest accuracy over time
@@ -129,12 +137,12 @@ with tab_backtest:
             go.Scatter(x=m["season"], y=m["mae_baseline"], mode="lines+markers", name="Baseline (last season PPG)")
         )
         for _, r in m[m["shortened"].fillna("") != ""].iterrows():
-            fig.add_vline(x=r["season"], line_dash="dot", opacity=0.4, annotation_text=r["shortened"])
+            _add_season_marker(fig, r["season"], r["shortened"])
         fig.update_layout(yaxis_title="MAE (PPG)", xaxis_title="Season", height=420)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         fig2 = px.line(m, x="season", y="r2", markers=True, title="R² per season")
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width="stretch")
 
         if "top_features" in m.columns:
             st.subheader("Top features (most recent season)")
@@ -172,13 +180,13 @@ with tab_rookies:
         )
         fig.add_shape(type="line", x0=0, y0=0, x1=rp["pred_ppg"].max(), y1=rp["pred_ppg"].max(),
                       line=dict(dash="dash"))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         st.subheader("Top 10 undervalued (model steals)")
         steals = rp.sort_values("steal_score", ascending=False).head(10)
         st.dataframe(
             steals[["skaterFullName", "season", "draft_ovr", "pred_ppg", "ppg_rookie"]],
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -186,6 +194,6 @@ with tab_rookies:
         busts = rp[rp["draft_ovr"] <= 30].sort_values("ppg_rookie").head(10)
         st.dataframe(
             busts[["skaterFullName", "season", "draft_ovr", "pred_ppg", "ppg_rookie"]],
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
