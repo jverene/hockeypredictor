@@ -51,15 +51,20 @@ def train_model(
     target: str,
     order_col: str,
     params: dict | None = None,
+    sample_weight: pd.Series | None = None,
 ) -> TrainedModel:
     """Train an XGBoost regressor with a temporal early-stopping holdout."""
     df = train_df.dropna(subset=[target])
     X, y, order = df[features], df[target], df[order_col]
     X_tr, y_tr, X_val, y_val = _temporal_split(X, y, order)
 
+    w_tr = None
+    if sample_weight is not None:
+        w_tr = sample_weight.loc[X_tr.index]
+
     cfg = {**DEFAULT_PARAMS, **(params or {})}
     model = xgb.XGBRegressor(early_stopping_rounds=EARLY_STOPPING_ROUNDS, **cfg)
-    model.fit(X_tr, y_tr, eval_set=[(X_val, y_val)], verbose=False)
+    model.fit(X_tr, y_tr, sample_weight=w_tr, eval_set=[(X_val, y_val)], verbose=False)
 
     importance = dict(zip(features, model.feature_importances_.tolist()))
     return TrainedModel(

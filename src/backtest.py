@@ -50,21 +50,42 @@ def run_veteran_backtest(
     veterans: pd.DataFrame,
     first: int = FIRST_BACKTEST_SEASON,
     last: int = LAST_BACKTEST_SEASON,
-    window: int = 5,
+    window: int | None = 5,
+    recency_decay: float | None = None,
     verbose: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Walk-forward veteran backtest. Returns (predictions, per-season metrics)."""
+    """Walk-forward veteran backtest. Returns (predictions, per-season metrics).
+
+    window=None trains on all history before Y (expanding window); an int uses
+    a rolling window of that many seasons. recency_decay (e.g. 0.85) applies
+    exponential sample weights by target-season age: decay ** years_before_Y.
+    """
     predictions: list[pd.DataFrame] = []
     season_rows: list[dict] = []
 
     for Y in season_window(first, last):
-        train_targets = _seasons_before(Y, window)
-        train = veterans[veterans["next_season_actual"].isin(train_targets)]
+        if window is None:
+            train_mask = veterans["next_season_actual"] < Y
+        else:
+            train_targets = _seasons_before(Y, window)
+            train_mask = veterans["next_season_actual"].isin(train_targets)
+        train = veterans[train_mask]
         test = veterans[veterans["next_season_actual"] == Y]
         if train.empty or test.empty:
             continue
 
-        trained = train_model(train, VETERAN_FEATURES, "ppg_next", order_col="next_season_actual")
+        weights = None
+        if recency_decay is not None:
+            years_back = (Y - train["next_season_actual"]) / 10001.0
+            weights = recency_decay ** years_back
+
+        trained = train_model(
+            train,
+            VETERAN_FEATURES,
+            "ppg_next",
+            order_col="next_season_actual",
+            **({"sample_weight": weights} if weights is not None else {}),
+        )
         test = test.copy()
         test["pred_ppg"] = predict(trained, test)
         test["pred_season"] = Y  # the season being predicted (seasonId is the feature season)
