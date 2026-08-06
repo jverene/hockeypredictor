@@ -30,17 +30,3 @@ def directional_accuracy(y_true: pd.Series, y_pred: np.ndarray, baseline: pd.Ser
 def spearman(y_true: pd.Series, y_pred: np.ndarray) -> float:
     """Rank correlation between predicted and actual."""
     return float(spearmanr(y_true, y_pred).statistic)
-
-
-def season_metrics(df: pd.DataFrame, pred_col: str = "pred_ppg", target_col: str = "ppg_next") -> dict:
-    ev = df.dropna(subset=[target_col])
-    out = {
-        "n": len(ev),
-        "mae": mae(ev[target_col], ev[pred_col]),
-        "rmse": rmse(ev[target_col], ev[pred_col]),
-        "r2": r2(ev[target_col], ev[pred_col]) if len(ev) > 1 else np.nan,
-        "mae_baseline": mae(ev[target_col], ev["ppg_last1"]) if "ppg_last1" in ev else np.nan,
-    }
-    if "ppg_last1" in ev:
-        out["directional_accuracy"] = directional_accuracy(ev[target_col], ev[pred_col], ev["ppg_last1"])
-    return out
