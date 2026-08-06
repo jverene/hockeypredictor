@@ -151,7 +151,7 @@ def run_rookie_backtest(
 
 
 def build_dataset(refresh: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Full data -> features pipeline; returns (veteran_rows, rookie_rows)."""
+    """Full data -> features pipeline; returns (player_seasons, veteran_rows, rookie_rows)."""
     from .data import (
         fetch_all_bios,
         fetch_team_meta,
@@ -176,7 +176,7 @@ def build_dataset(refresh: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     veterans = build_veteran_features(player_seasons)
     rookies = build_rookie_features(player_seasons, load_prenhl_stats())
-    return veterans, rookies
+    return player_seasons, veterans, rookies
 
 
 def main() -> None:
@@ -187,7 +187,8 @@ def main() -> None:
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    veterans, rookies = build_dataset(refresh=args.refresh)
+    player_seasons, veterans, rookies = build_dataset(refresh=args.refresh)
+    player_seasons.to_parquet(OUTPUT_DIR / "player_seasons.parquet", index=False)
     veterans.to_parquet(OUTPUT_DIR / "veteran_features.parquet", index=False)
     rookies.to_parquet(OUTPUT_DIR / "rookie_features.parquet", index=False)
 
