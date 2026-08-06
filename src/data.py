@@ -132,6 +132,13 @@ def fetch_team_season(season_id: int, refresh: bool = False) -> pd.DataFrame:
     return df[keep]
 
 
+def fetch_team_meta(refresh: bool = False) -> pd.DataFrame:
+    """Team directory: (teamId, triCode, fullName) incl. historical franchises."""
+    rows = _paged(f"{STATS_REST}/team", {}, "team_meta", "all", refresh)
+    df = pd.DataFrame(rows)
+    return df[["id", "triCode", "fullName"]].rename(columns={"id": "teamId"})
+
+
 def fetch_player_bio(player_id: int, refresh: bool = False) -> dict:
     """Bio + draft details for one player."""
     payload = _get_json(f"{API_WEB}/player/{player_id}/landing", None, "bio", str(player_id), refresh)
@@ -228,8 +235,9 @@ def main() -> None:
 
     skaters = load_skater_seasons(refresh=args.refresh)
     teams = load_team_seasons(refresh=args.refresh)
+    team_meta = fetch_team_meta(refresh=args.refresh)
     bios = fetch_all_bios(sorted(skaters["playerId"].unique().tolist()), refresh=args.refresh)
-    print(f"Done: {len(skaters)} skater-seasons, {len(teams)} team-seasons, {len(bios)} bios.")
+    print(f"Done: {len(skaters)} skater-seasons, {len(teams)} team-seasons, {len(team_meta)} teams, {len(bios)} bios.")
 
 
 if __name__ == "__main__":
