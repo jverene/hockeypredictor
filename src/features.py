@@ -128,7 +128,7 @@ def attach_team_quality(
     team_pct = teams.set_index(["seasonId", "teamId"])["pointPct"].to_dict()
 
     stint = skaters[["playerId", "seasonId", "teams", "gamesPlayed"]].copy()
-    stint["abbrev"] = stint["teams"].str.split(", ")
+    stint["abbrev"] = stint["teams"].str.split(",")
     stint = stint.explode("abbrev")
     stint["teamId"] = stint["abbrev"].str.strip().map(abbrev_to_id)
     stint["pointPct"] = [
