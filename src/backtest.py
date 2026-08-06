@@ -67,6 +67,7 @@ def run_veteran_backtest(
         trained = train_model(train, VETERAN_FEATURES, "ppg_next", order_col="next_season_actual")
         test = test.copy()
         test["pred_ppg"] = predict(trained, test)
+        test["pred_season"] = Y  # the season being predicted (seasonId is the feature season)
 
         ev = test[test["eval_ok"] & test["ppg_next"].notna()]
         row = {
@@ -90,7 +91,7 @@ def run_veteran_backtest(
             )
         season_rows.append(row)
         predictions.append(
-            test[["playerId", "skaterFullName", "seasonId", "ppg_last1", "pred_ppg", "ppg_next", "gp_next", "eval_ok"]]
+            test[["playerId", "skaterFullName", "seasonId", "pred_season", "ppg_last1", "pred_ppg", "ppg_next", "gp_next", "eval_ok"]]
         )
         if verbose:
             print(

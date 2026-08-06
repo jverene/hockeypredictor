@@ -7,7 +7,6 @@ season — lags, career aggregates, and era context never look forward.
 from __future__ import annotations
 
 import unicodedata
-from datetime import date
 
 import numpy as np
 import pandas as pd
@@ -68,9 +67,9 @@ def _norm_name(name: str) -> str:
     return " ".join("".join(c for c in s if c.isalnum() or c == " ").lower().split())
 
 
-def _age_at_season_start(birth: pd.Series, season_id: int) -> pd.Series:
-    """Biological age on Oct 1 of the season's first year."""
-    start = pd.Timestamp(date(season_id // 10000, 10, 1))
+def _age_at_season_start(birth: pd.Series, season_id: pd.Series | int) -> pd.Series:
+    """Biological age on Oct 1 of the season's first year (vectorized)."""
+    start = pd.to_datetime((pd.Series(season_id, index=birth.index) // 10000).astype(str) + "-10-01")
     return (start - pd.to_datetime(birth)).dt.days / 365.25
 
 
