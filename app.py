@@ -154,7 +154,10 @@ with tab_rookies:
         c2.metric("Mean Spearman ρ", f"{class_metrics['spearman'].mean():.3f}")
 
         rp = rook_preds.copy()
-        rp["steal_score"] = rp["pred_ppg"] - (0.55 - 0.0015 * rp["draft_ovr"])  # vs draft-slot expectation
+        # Draft-slot expectation: mean actual rookie PPG within draft deciles.
+        rp["draft_decile"] = pd.qcut(rp["draft_ovr"], 10, labels=False, duplicates="drop")
+        rp["expectation"] = rp.groupby("draft_decile")["ppg_rookie"].transform("mean")
+        rp["steal_score"] = rp["pred_ppg"] - rp["expectation"]
         rp["season"] = rp["rookie_season"].map(lambda s: season_label(int(s)))
 
         fig = px.scatter(
