@@ -70,6 +70,52 @@ still informs the new normal (its biggest win: 2006-07, first full post-lockout
 season, +0.008). We keep the PRD's rolling window as the default and ship the
 harness (`python -m src.compare_windows`) so the choice is reproducible.
 
+## Availability sensitivity: would excluding injured players help?
+
+A fair objection to the 0.129 MAE is that it includes players who got hurt.
+We tested this two ways on all 17,465 evaluated player-seasons (hindsight
+analysis only — you can't know in October who gets hurt in February):
+
+| Filter | n | MAE |
+|---|---|---|
+| ≥15 GP in target season (current) | 17,465 | 0.1279 |
+| ≥41 GP (half season) | 14,793 | 0.1281 |
+| ≥70 GP | 8,187 | **0.1352 (worse)** |
+| exclude GP collapses (<60% of prior season) | 15,529 | 0.1267 |
+
+Two findings. First, the injury signal is real but small: players whose games
+collapsed are predicted 0.010 MAE worse than everyone else, and the model
+systematically *over*predicts them by 0.057 PPG — exactly the signature of
+invisible injuries. Second, excluding them barely moves the headline number
+(−0.001), and harsher GP thresholds actively hurt: they remove low-PPG depth
+players, who are the easiest to predict, and leave only volatile stars. The
+≥15 GP filter already captures almost all of the available gain.
+
+## Where the model is right, and where it can't be
+
+**Most accurate predictions** — mid-tier veterans in stable roles; boring is
+predictable: Tyler Pitlick 2019-20 (0.317 pred / 0.317 actual), Niklas
+Hjalmarsson 2012-13 (0.217 / 0.217), Darren Turcotte 1991-92 (0.747 / 0.746),
+Marian Hossa 2012-13 (0.775 / 0.775).
+
+**Biggest busts (predicted high, delivered low):** Curtis Brown 1996-97
+(predicted 1.03 after a small-sample 2.0 PPG tease, delivered 0.25), Mike
+Green 2011-12 (0.87 → 0.22, injuries after back-to-back 70-point seasons),
+Jimmy Carson and Rob Brown 1990-91 (both lost the Lemieux/Gretzky linemate
+effect), Steve Yzerman 1994-95 (lockout + knee at 29). The failure modes are
+the human ones: linemate effects, aging cliffs arriving a year early, and
+small-sample flukes.
+
+**Biggest risers (delivered far above prediction):** Mark Recchi 1990-91
+(0.29 → 1.45, age-22 Cup-year breakout), Adam Oates 1990-91 (0.79 → 1.89),
+Mario Lemieux 1992-93 (predicted a league-leading 1.73; he returned from
+cancer and posted **2.67** — being wrong about Lemieux because he was
+superhuman is a good error to have), Tage Thompson 2022-23 (0.29 → 1.21),
+Jonathan Cheechoo 2005-06 (0.29 → 1.13, 56 goals, never repeated), Erik
+Karlsson 2022-23 (0.45 → 1.23, the first 100-point defenseman in 30 years).
+Genuine breakouts are by definition absent from historical box scores — this
+list is the honest ceiling of the approach.
+
 ## Draft steals and busts
 
 With rookie predictions ranked against empirical draft-decile expectations,
