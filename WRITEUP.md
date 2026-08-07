@@ -1,9 +1,9 @@
 # Hockey Career Trajectory Predictor — Writeup
 
 *Can a model predict hockey careers better than "whatever he did last year"? Yes —
-consistently, across 34 seasons, with zero data leakage. Can it do it better than
-NHL scouts' draft boards? Only partially — and the reason why is the most
-interesting finding in the project.*
+consistently, across 35 seasons, with zero data leakage. Can it do it better than
+NHL scouts' draft boards? On rank-ordering rookies it gets close — and the gap is
+almost exactly the information scouts have that box scores don't.*
 
 ---
 
@@ -11,22 +11,22 @@ interesting finding in the project.*
 
 | Goal (PRD §2) | Target | Result | Verdict |
 |---|---|---|---|
-| Veteran next-season PPG | MAE < 0.08 | **MAE 0.129** (baseline 0.154) | Target missed; baseline beaten by 16.5% in all 33 backtested seasons |
-| Rookie-season PPG | Spearman ρ > 0.55 | **ρ = 0.354** | Missed — pre-NHL production data unavailable (see limitations) |
-| Leak-free backtest 1990–2024 | rolling 5-yr walk-forward | 33 veteran seasons + 31 draft classes, strict temporal splits | Met |
+| Veteran next-season PPG | MAE < 0.08 | **MAE 0.129** (baseline 0.154) | Target missed; baseline beaten by 16.4% across all 35 backtested seasons |
+| Rookie-season PPG | Spearman ρ > 0.55 | **ρ = 0.503** (0.354 without NHLe data) | Narrowly missed; >0.55 in 13 of 35 classes |
+| Leak-free backtest 1990–2026 | rolling 5-yr walk-forward | 35 veteran seasons + 35 draft classes, strict temporal splits | Met |
 | Steals list | top-10 undervalued | produced (below + app) | Met |
 | Streamlit demo | live app | `streamlit run app.py` | Met |
 
-Directional accuracy (did the player improve or decline vs last year?): **68.2%**.
-Mean R² per season: **0.628**.
+Directional accuracy (did the player improve or decline vs last year?): **68.3%**.
+Mean R² per season: **0.632**.
 
 ### Why the 0.08 MAE target was unrealistic
 
 PPG is noisy: a 0.5 PPG player who plays 75 games has a binomial-ish sampling
 stdev around 0.05 from puck luck alone, before injuries, linemate churn, and
 coaching changes. The naive baseline ("same as last year") sits at 0.154 MAE;
-the model's 0.129 is a 16.5% improvement that holds in *every single season*
-from 1990-91 to 2023-24 — high-scoring 90s, dead-puck era, post-lockout, and
+the model's 0.129 is a 16.4% improvement that holds in *every single season*
+from 1990-91 to 2025-26 — high-scoring 90s, dead-puck era, post-lockout, and
 the modern skill game alike. We report the honest number rather than tune to
 the target.
 
@@ -44,7 +44,7 @@ flagged. All data comes from the free NHL stats API, cached on disk.
 
 ## The aging curve is real
 
-Across all 33 season-models, `age`, `age_sq`, and the `age × ppg_last1`
+Across all 35 season-models, `age`, `age_sq`, and the `age × ppg_last1`
 interaction rank in the top 5 features almost every year — behind only the
 production lags. The SHAP dependence plot (notebook §3) shows the expected
 inverted-U: positive SHAP values through the early 20s, peaking at 25–27,
@@ -58,9 +58,9 @@ samples. We ran all three arms through the identical walk-forward harness:
 
 | Arm | MAE | R² | Dir. acc |
 |---|---|---|---|
-| expanding (all history) | **0.1283** | 0.631 | 0.684 |
-| expanding + 0.85/yr decay | 0.1287 | 0.630 | 0.683 |
-| rolling 5-yr (PRD default) | 0.1289 | 0.628 | 0.682 |
+| expanding (all history) | **0.1279** | 0.635 | 0.684 |
+| expanding + 0.85/yr decay | 0.1283 | 0.634 | 0.683 |
+| rolling 5-yr (PRD default) | 0.1285 | 0.632 | 0.683 |
 
 A statistical wash — because `era_adj_factor` lets the model absorb era drift
 internally. The interesting structure is in the exceptions: the rolling window
@@ -73,19 +73,19 @@ harness (`python -m src.compare_windows`) so the choice is reproducible.
 ## Availability sensitivity: would excluding injured players help?
 
 A fair objection to the 0.129 MAE is that it includes players who got hurt.
-We tested this two ways on all 17,465 evaluated player-seasons (hindsight
+We tested this two ways on all 18,653 evaluated player-seasons (hindsight
 analysis only — you can't know in October who gets hurt in February):
 
 | Filter | n | MAE |
 |---|---|---|
-| ≥15 GP in target season (current) | 17,465 | 0.1279 |
-| ≥41 GP (half season) | 14,793 | 0.1281 |
-| ≥70 GP | 8,187 | **0.1352 (worse)** |
-| exclude GP collapses (<60% of prior season) | 15,529 | 0.1267 |
+| ≥15 GP in target season (current) | 18,653 | 0.1275 |
+| ≥41 GP (half season) | 15,829 | 0.1277 |
+| ≥70 GP | 8,861 | **0.1345 (worse)** |
+| exclude GP collapses (<60% of prior season) | 16,604 | 0.1263 |
 
 Two findings. First, the injury signal is real but small: players whose games
 collapsed are predicted 0.010 MAE worse than everyone else, and the model
-systematically *over*predicts them by 0.057 PPG — exactly the signature of
+systematically *over*predicts them by 0.058 PPG — exactly the signature of
 invisible injuries. Second, excluding them barely moves the headline number
 (−0.001), and harsher GP thresholds actively hurt: they remove low-PPG depth
 players, who are the easiest to predict, and leave only volatile stars. The
@@ -100,15 +100,15 @@ model (`python -m src.backtest --quantiles`). The **upside spread** (q90−q50)
 is a breakout-risk score; the **downside spread** (q50−q10) a slump-risk
 score. A breakout is a ≥ +0.30 PPG jump vs last season; a slump ≤ −0.30.
 
-Results over all 17,465 evaluated player-seasons:
+Results over all 18,653 evaluated player-seasons:
 
 | Metric | Result | Reading |
 |---|---|---|
 | 80% interval coverage | **0.797** | near-perfect calibration |
 | Upside score → breakout AUC | **0.631** | real signal (0.5 = coin flip) |
-| Downside score → slump AUC | **0.690** | slumps are more predictable than breakouts |
-| Precision@50 breakouts | 0.128 vs 0.069 base | 1.9× enrichment |
-| Precision@50 slumps | 0.149 vs 0.066 base | 2.3× enrichment |
+| Downside score → slump AUC | **0.691** | slumps are more predictable than breakouts |
+| Precision@50 breakouts | 0.126 vs 0.068 base | 1.9× enrichment |
+| Precision@50 slumps | 0.147 vs 0.065 base | 2.3× enrichment |
 
 The model genuinely sees the tails coming: among actual breakouts, the highest
 upside calls include Lemieux 1992-93 (median 1.36 but **q90 of 2.06** — the
@@ -124,16 +124,14 @@ Every evaluated player-season binned by position × age band × production tier
 
 | # | Archetype | n | MAE | Bias |
 |---|---|---|---|---|
-| 1 | D, 31+, depth (<0.25) | 688 | **0.062** | −0.00 |
-| 2 | F, 31+, depth | 441 | 0.073 | −0.01 |
-| 3 | D, 27-30, depth | 941 | 0.076 | +0.01 |
-| 4 | D, 23-26, depth | 1,079 | 0.087 | −0.00 |
-| 5 | F, 27-30, depth | 821 | 0.093 | +0.02 |
-| … | (middle of the table: middle-tier and older top-pair players) | | 0.10–0.16 | |
-| 22 | F, ≤22, middle (0.25-0.55) | 402 | 0.180 | +0.05 |
-| 23 | F, ≤22, top-6 (0.55-0.85) | 191 | 0.188 | +0.06 |
-| 24 | F, 23-26, elite (>0.85) | 424 | 0.193 | +0.05 |
-| 25 | F, ≤22, elite (>0.85) | 91 | **0.240** | +0.07 |
+| 1 | D, 31+, depth (<0.25) | 739 | **0.061** | −0.00 |
+| 2 | F, 31+, depth | 476 | 0.074 | −0.01 |
+| 3 | D, 27-30, depth | 997 | 0.077 | +0.00 |
+| … | (middle of the table: middle-tier and older top-pair players) | | 0.09–0.17 | |
+| 23 | F, ≤22, middle (0.25-0.55) | 425 | 0.181 | +0.05 |
+| 24 | F, ≤22, top-6 (0.55-0.85) | 203 | 0.186 | +0.06 |
+| 25 | F, 23-26, elite (>0.85) | 448 | 0.191 | +0.05 |
+| 26 | F, ≤22, elite (>0.85) | 96 | **0.242** | +0.05 |
 
 Three clean laws emerge:
 
@@ -178,26 +176,49 @@ list is the honest ceiling of the approach.
 
 ## Draft steals and busts
 
-With rookie predictions ranked against empirical draft-decile expectations,
-the model's top "steals that delivered" include **German Titov** (drafted 252nd
-in 1993, 0.59 PPG as a rookie) and **Andrei Lomakin** (138th, 0.53 PPG). It also
-flagged **Eric Lindros** and **Nico Hischier** as elite despite their status as
-known quantities — a sanity check that the ranking signal is real.
+The rookie layer runs on NHLe-translated pre-NHL production pulled from the
+NHL API's own player bios (53,561 junior/college/European stints across 12
+leagues — no EliteProspects needed; see Limitations for the details).
 
-The rookie model is also the project's biggest honesty checkpoint: with only
-draft position, age, size, and position (no junior production — see below),
-ρ = 0.354 is roughly *half* the PRD target. Draft position alone is doing most
-of that work, which tells you both that scouts carry real information and that
-production translation (NHLe) is the missing half of the signal.
+**The marquee test cases:** with only data available before their draft classes,
+the model predicted **Connor Bedard at 0.850 PPG (actual: 0.897)**, **Auston
+Matthews at 0.794 (actual: 0.841)**, **Connor McDavid at 0.779 (actual: 1.067)**,
+and **Macklin Celebrini at 0.719 (actual: 0.900)**. Without the NHLe features,
+Bedard and Celebrini both get exactly 0.67 — the historical average #1-overall
+rookie — because draft position is all the model can see. The 143-point WHL
+season is what separates Bedard from Alexandre Daigle, and NHLe is how the
+model learns to see it.
+
+**Steals that delivered** (predicted far above draft-decile expectation, and
+proved it): **Miroslav Satan** (111th pick, predicted 0.68 — a first-line
+projection — actual 0.57 as a rookie), plus the model's habit of spotting
+undersung Europeans like **Andreas Dackell** (136th) and **Kai Nurminen** (193rd).
+
+**Busts it saw coming** (top-10 pick, low prediction, low delivery): **Nino
+Niederreiter** (5th, predicted 0.34, delivered 0.02), **Alek Stojanov** (7th,
+0.28 → 0.03), **Alexandre Picard** (8th, 0.34 → 0.00), **Griffin Reinhart**
+(4th, 0.22 → 0.03).
+
+The rookie model is also the project's honesty checkpoint: ρ = 0.503 misses the
+PRD's 0.55 target league-wide, though 13 of 35 classes clear it. What separates
+the model from scouts is the residual information box scores don't carry —
+skating, hockey sense, medicals, interviews. Draft position (a scout
+consensus proxy) remains one of the top features, which tells you that
+information is real.
 
 ## Limitations (the honest section)
 
-1. **No pre-NHL production data.** EliteProspects blocks scraping (HTTP 403)
-   and its API requires a key; the Kaggle fallback requires manual download.
-   The rookie layer therefore runs with all `eq_*` features as NaN (XGBoost
-   handles this natively). Drop a CSV matching `data/prenhl_stats.sample.csv`
-   at `data/prenhl_stats.csv` and the full NHLe pipeline activates with no
-   code changes — name + birth-date matching handles the NHL↔EP join.
+1. **Pre-NHL data comes from NHL bios, not a full league scrape.** The
+   `seasonTotals` in each player's NHL API landing page covers
+   junior/college/European stints well for players who *made* the NHL — but
+   only for them. Two consequences: leagues without a literature-backed NHLe
+   factor (ECHL, European second tiers, tournaments) are dropped, and
+   `age_vs_league_avg` is measured against *future NHL players* in that
+   league-season, not the league's true average age. Historical league names
+   are reconciled via `LEAGUE_ALIASES` (e.g. "Sweden" → SHL, NCAA conferences
+   → NCAA); the Czech Extraliga factor (0.40) is an addition beyond the PRD's
+   table. An EliteProspects export dropped at `data/prenhl_stats.csv`
+   overrides the bio-derived data with no code changes.
 2. **Box scores only.** No ice time, no linemates, no injuries, no contracts.
    `gp_last1` is the entire health model.
 3. **Playoffs ignored** (PRD open question; regular season only).
@@ -208,12 +229,13 @@ production translation (NHLe) is the missing half of the signal.
 
 ```bash
 pip install -r requirements.txt
-python -m src.backtest            # pull + cache data, run both backtests
-python -m src.compare_windows     # training-window A/B
+python -m src.backtest --quantiles  # pull + cache data, run both backtests
+python -m src.tails                 # breakout/slump evaluation
+python -m src.compare_windows       # training-window A/B
 jupyter nbconvert --execute notebooks/eval.ipynb
 streamlit run app.py
-pytest tests -q                   # 14 tests, incl. leakage guards
+pytest tests -q                     # 14 tests, incl. leakage guards
 ```
 
 *Stack: Python 3.12, XGBoost, scikit-learn, pandas, SHAP, Streamlit, Plotly.
-Compute: a laptop, ~25 min one-time API backfill, ~4 min of model training.*
+Compute: a laptop, ~30 min one-time API backfill, ~5 min of model training.*
