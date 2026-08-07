@@ -117,6 +117,40 @@ q90 0.90, actual 0.96). And McDavid is the exception that proves the rule: his
 actual PPG exceeds even his personal q90 in five of seven seasons — he is, by
 the model's own accounting, a >90th-percentile-outcome player every year.
 
+## Archetype predictability ranking
+
+Every evaluated player-season binned by position × age band × production tier
+(last-season PPG), ranked by backtest MAE (cells with n ≥ 100):
+
+| # | Archetype | n | MAE | Bias |
+|---|---|---|---|---|
+| 1 | D, 31+, depth (<0.25) | 688 | **0.062** | −0.00 |
+| 2 | F, 31+, depth | 441 | 0.073 | −0.01 |
+| 3 | D, 27-30, depth | 941 | 0.076 | +0.01 |
+| 4 | D, 23-26, depth | 1,079 | 0.087 | −0.00 |
+| 5 | F, 27-30, depth | 821 | 0.093 | +0.02 |
+| … | (middle of the table: middle-tier and older top-pair players) | | 0.10–0.16 | |
+| 22 | F, ≤22, middle (0.25-0.55) | 402 | 0.180 | +0.05 |
+| 23 | F, ≤22, top-6 (0.55-0.85) | 191 | 0.188 | +0.06 |
+| 24 | F, 23-26, elite (>0.85) | 424 | 0.193 | +0.05 |
+| 25 | F, ≤22, elite (>0.85) | 91 | **0.240** | +0.07 |
+
+Three clean laws emerge:
+
+1. **Defensemen are easier than forwards at every age and tier.** D scoring is
+   role-driven (power-play time, team system) and roles are sticky; F scoring
+   has more individual variance.
+2. **Low production is easy, high production is hard.** The floor is bounded
+   (nobody scores below zero), so depth players have almost no downside
+   variance. Error scales with the mean — a near-proportional relationship.
+3. **Young is hard, and young + good is hardest.** Every ≤22 cell carries a
+   *positive* bias (+0.05 to +0.07): the model systematically underpredicts
+   developing players because mean reversion can't see the development curve
+   arriving. The single hardest cell in hockey — a 20-year-old who is already
+   elite (the McDavid/Matthews/Hughes cell) — is 4× harder to predict than an
+   aging depth defenseman. This is precisely the cell the quantile layer
+   (upside spread) was built for.
+
 ## Where the model is right, and where it can't be
 
 **Most accurate predictions** — mid-tier veterans in stable roles; boring is
