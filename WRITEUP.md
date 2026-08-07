@@ -91,6 +91,32 @@ invisible injuries. Second, excluding them barely moves the headline number
 players, who are the easiest to predict, and leave only volatile stars. The
 ≥15 GP filter already captures almost all of the available gain.
 
+## Tail predictions: breakouts and slumps
+
+The mean model shrinks extremes (it never predicts above ~1.33 PPG, which is
+why it underrates McDavid every year). To say something about the tails we
+train q10/q50/q90 pinball-loss quantile models each season alongside the mean
+model (`python -m src.backtest --quantiles`). The **upside spread** (q90−q50)
+is a breakout-risk score; the **downside spread** (q50−q10) a slump-risk
+score. A breakout is a ≥ +0.30 PPG jump vs last season; a slump ≤ −0.30.
+
+Results over all 17,465 evaluated player-seasons:
+
+| Metric | Result | Reading |
+|---|---|---|
+| 80% interval coverage | **0.797** | near-perfect calibration |
+| Upside score → breakout AUC | **0.631** | real signal (0.5 = coin flip) |
+| Downside score → slump AUC | **0.690** | slumps are more predictable than breakouts |
+| Precision@50 breakouts | 0.128 vs 0.069 base | 1.9× enrichment |
+| Precision@50 slumps | 0.149 vs 0.066 base | 2.3× enrichment |
+
+The model genuinely sees the tails coming: among actual breakouts, the highest
+upside calls include Lemieux 1992-93 (median 1.36 but **q90 of 2.06** — the
+model left the door open for superhuman) and Keith Tkachuk 1993-94 (q50 0.39,
+q90 0.90, actual 0.96). And McDavid is the exception that proves the rule: his
+actual PPG exceeds even his personal q90 in five of seven seasons — he is, by
+the model's own accounting, a >90th-percentile-outcome player every year.
+
 ## Where the model is right, and where it can't be
 
 **Most accurate predictions** — mid-tier veterans in stable roles; boring is

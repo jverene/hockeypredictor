@@ -107,6 +107,18 @@ with tab_player:
                 line=dict(dash="dash"),
             )
         )
+        if {"pred_ppg_q10", "pred_ppg_q90"} <= set(player_preds.columns):
+            fig.add_trace(
+                go.Scatter(
+                    x=pd.concat([player_preds["season"], player_preds["season"][::-1]]),
+                    y=pd.concat([player_preds["pred_ppg_q90"], player_preds["pred_ppg_q10"][::-1]]),
+                    fill="toself",
+                    fillcolor="rgba(99,110,250,0.15)",
+                    line=dict(width=0),
+                    name="80% prediction interval",
+                    hoverinfo="skip",
+                )
+            )
     for sid, note in SHORTENED_SEASONS.items():
         label = season_label(sid)
         if label in set(player["season"]):
