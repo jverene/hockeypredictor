@@ -1,9 +1,9 @@
 """Rolling walk-forward backtest engine (PRD §6).
 
-Veteran: for each target season Y (1990-91 .. 2023-24), train on all
+Veteran: for each target season Y (1990-91 .. 2025-26), train on all
 (player-season -> next-season) pairs whose *target* season falls in the 5
 seasons strictly before Y, then predict season Y for everyone who played in
-Y-1. Rookie: for each draft class D (1990..2020), train on pairs from earlier
+Y-1. Rookie: for each draft class D (1990..2024), train on pairs from earlier
 classes only.
 
 Leakage guards:
@@ -37,7 +37,7 @@ from .model import predict, train_model
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data" / "output"
 
 ROOKIE_FIRST_CLASS = 1990
-ROOKIE_LAST_CLASS = 2020
+ROOKIE_LAST_CLASS = 2024
 
 
 def _seasons_before(season_id: int, n: int) -> list[int]:

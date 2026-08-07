@@ -55,7 +55,7 @@ if "player_seasons" not in data:
 
 st.title("Hockey Career Trajectory Predictor")
 st.caption(
-    "Rolling-window XGBoost backtest, 1990-91 → 2023-24. "
+    "Rolling-window XGBoost backtest, 1990-91 → 2025-26. "
     "Predictions are made with data available before each season only."
 )
 

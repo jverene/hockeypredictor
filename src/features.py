@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 
 from .constants import (
+    LEAGUE_ALIASES,
     LEAGUE_LEVELS,
     MIN_PRENHL_GP,
     MIN_TARGET_GP,
@@ -253,7 +254,8 @@ def build_rookie_features(player_seasons: pd.DataFrame, prenhl: pd.DataFrame) ->
         pre["birth_date"], errors="coerce"
     ).dt.strftime("%Y-%m-%d")
     pre["points"] = pre["goals"] + pre["assists"]
-    pre["nhle"] = pre["league"].astype(str).str.upper().map(NHLE_FACTORS)
+    pre["league"] = pre["league"].astype(str).str.upper().map(lambda l: LEAGUE_ALIASES.get(l, l))
+    pre["nhle"] = pre["league"].map(NHLE_FACTORS)
     pre = pre[(pre["gp"] >= MIN_PRENHL_GP) & pre["nhle"].notna()]
 
     rookies["key"] = rookies["skaterFullName"].map(_norm_name) + "|" + pd.to_datetime(

@@ -215,24 +215,55 @@ def load_team_seasons(refresh: bool = False) -> pd.DataFrame:
 def load_prenhl_stats(path: Path = PRENHL_CSV) -> pd.DataFrame:
     """Pre-NHL (junior/minor/European) season stats for the rookie layer.
 
-    Expected CSV schema (one row per player per pre-NHL season per league):
-        player_name, birth_date, season, league, team, gp, goals, assists
+    Primary source: the `seasonTotals` array in the cached player bios — the
+    NHL API publishes every player's junior/college/European regular-season
+    stints. Historical league names are canonicalized via LEAGUE_ALIASES;
+    leagues without a literature-backed NHLe factor are dropped here.
 
-    `league` must be a key of constants.NHLE_FACTORS (OHL, WHL, QMJHL, USHL,
-    NCAA, AHL, KHL, SHL, LIIGA, NLA, DEL, NHL). Producers: an EliteProspects
-    scrape or the Kaggle "Hockey stats 30 leagues" dataset. Returns an empty
-    frame with the right columns when the file does not exist; the rookie
-    pipeline degrades gracefully (eq_* features become NaN, which XGBoost
-    handles natively).
+    Override: if `data/prenhl_stats.csv` exists it is used instead (e.g. an
+    EliteProspects or Kaggle export) with schema:
+        player_name, birth_date, season, league, team, gp, goals, assists
+    where `season` is the season's start year.
     """
     cols = ["player_name", "birth_date", "season", "league", "team", "gp", "goals", "assists"]
-    if not path.exists():
-        return pd.DataFrame(columns=cols)
-    df = pd.read_csv(path)
-    missing = set(cols) - set(df.columns)
-    if missing:
-        raise ValueError(f"{path} is missing columns: {sorted(missing)}")
-    return df
+    if path.exists():
+        df = pd.read_csv(path)
+        missing = set(cols) - set(df.columns)
+        if missing:
+            raise ValueError(f"{path} is missing columns: {sorted(missing)}")
+        return df
+
+    from .constants import LEAGUE_ALIASES, NHLE_FACTORS
+
+    rows = []
+    for bio_file in (CACHE_DIR / "bio").glob("*.json"):
+        payload = json.loads(bio_file.read_text())
+        name = " ".join(
+            filter(None, [(payload.get("firstName") or {}).get("default"),
+                          (payload.get("lastName") or {}).get("default")])
+        )
+        birth = payload.get("birthDate")
+        for stint in payload.get("seasonTotals", []):
+            if stint.get("gameTypeId") != REGULAR_SEASON_GAME_TYPE:
+                continue
+            league = str(stint.get("leagueAbbrev", "")).upper()
+            league = LEAGUE_ALIASES.get(league, league)
+            if league not in NHLE_FACTORS or league == "NHL":
+                continue
+            if not stint.get("gamesPlayed"):
+                continue
+            team = stint.get("teamName")
+            rows.append({
+                "player_name": name,
+                "birth_date": birth,
+                "season": int(stint["season"]) // 10000,
+                "league": league,
+                "team": team.get("default") if isinstance(team, dict) else team,
+                "gp": stint["gamesPlayed"],
+                "goals": stint.get("goals", 0),
+                "assists": stint.get("assists", 0),
+            })
+    return pd.DataFrame(rows, columns=cols)
 
 
 # ---------------------------------------------------------------------------

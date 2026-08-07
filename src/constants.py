@@ -4,7 +4,7 @@ from __future__ import annotations
 
 # NHL season ids are YYYYYYYY, e.g. 19901991 = the 1990-91 season.
 FIRST_BACKTEST_SEASON = 19901991
-LAST_BACKTEST_SEASON = 20232024
+LAST_BACKTEST_SEASON = 20252026
 
 # Rolling training window length (seasons) for the veteran model.
 TRAIN_WINDOW = 5
@@ -39,11 +39,35 @@ NHLE_FACTORS: dict[str, float] = {
     "AHL": 0.45,
     "NLA": 0.43,
     "DEL": 0.39,
+    "CZECH": 0.40,  # addition beyond PRD: Czech Extraliga (literature ~0.3-0.45)
     "NCAA": 0.32,
     "OHL": 0.28,
     "WHL": 0.28,
     "QMJHL": 0.28,
     "USHL": 0.22,
+}
+
+# The NHL API's bio seasonTotals use historical league names; map them onto
+# the canonical NHLe leagues above. Leagues without a literature-backed factor
+# (ECHL, IHL, tournaments, European second tiers) stay unmapped and are dropped.
+LEAGUE_ALIASES: dict[str, str] = {
+    "SWEDEN": "SHL",        # Elitserien/SHL, pre-2013 naming
+    "FINLAND": "LIIGA",     # SM-liiga, pre-2013 naming
+    "GERMANY": "DEL",
+    "SWISS": "NLA",
+    "NL": "NLA",            # Swiss league rebranded National League in 2017
+    "RUSSIA": "KHL",        # Russian Superleague, pre-2008
+    "RUS-KHL": "KHL",
+    "CZREP": "CZECH",
+    "CZECHIA": "CZECH",
+    "OMJHL": "OHL",         # Ontario Major Junior, pre-1981 naming
+    "WCHA": "NCAA",         # NCAA conferences
+    "CCHA": "NCAA",
+    "H-EAST": "NCAA",
+    "ECAC": "NCAA",
+    "BIG-10": "NCAA",
+    "NCHC": "NCAA",
+    "AHA": "NCAA",
 }
 
 # Ordinal league level for rookie features (higher = closer to NHL).
@@ -54,6 +78,7 @@ LEAGUE_LEVELS: dict[str, int] = {
     "LIIGA": 4,
     "NLA": 4,
     "DEL": 4,
+    "CZECH": 4,
     "AHL": 3,
     "NCAA": 2,
     "OHL": 1,
