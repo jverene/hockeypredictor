@@ -52,8 +52,13 @@ def train_model(
     order_col: str,
     params: dict | None = None,
     sample_weight: pd.Series | None = None,
+    quantile: float | None = None,
 ) -> TrainedModel:
-    """Train an XGBoost regressor with a temporal early-stopping holdout."""
+    """Train an XGBoost regressor with a temporal early-stopping holdout.
+
+    quantile (e.g. 0.1 or 0.9) switches to pinball-loss regression for
+    tail/interval predictions instead of the conditional mean.
+    """
     df = train_df.dropna(subset=[target])
     X, y, order = df[features], df[target], df[order_col]
     X_tr, y_tr, X_val, y_val = _temporal_split(X, y, order)
@@ -63,6 +68,9 @@ def train_model(
         w_tr = sample_weight.loc[X_tr.index]
 
     cfg = {**DEFAULT_PARAMS, **(params or {})}
+    if quantile is not None:
+        cfg["objective"] = "reg:quantileerror"
+        cfg["quantile_alpha"] = quantile
     model = xgb.XGBRegressor(early_stopping_rounds=EARLY_STOPPING_ROUNDS, **cfg)
     model.fit(X_tr, y_tr, sample_weight=w_tr, eval_set=[(X_val, y_val)], verbose=False)
 

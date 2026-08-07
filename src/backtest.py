@@ -52,6 +52,7 @@ def run_veteran_backtest(
     last: int = LAST_BACKTEST_SEASON,
     window: int | None = 5,
     recency_decay: float | None = None,
+    quantiles: tuple[float, ...] = (),
     verbose: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Walk-forward veteran backtest. Returns (predictions, per-season metrics).
@@ -59,6 +60,9 @@ def run_veteran_backtest(
     window=None trains on all history before Y (expanding window); an int uses
     a rolling window of that many seasons. recency_decay (e.g. 0.85) applies
     exponential sample weights by target-season age: decay ** years_before_Y.
+    quantiles (e.g. (0.1, 0.9)) additionally trains pinball-loss models per
+    season and adds pred_ppg_qXX columns — the q90−q50 spread is the model's
+    breakout-risk score, q50−q10 its slump-risk score.
     """
     predictions: list[pd.DataFrame] = []
     season_rows: list[dict] = []
@@ -90,6 +94,23 @@ def run_veteran_backtest(
         test["pred_ppg"] = predict(trained, test)
         test["pred_season"] = Y  # the season being predicted (seasonId is the feature season)
 
+        for q in quantiles:
+            qtrained = train_model(
+                train,
+                VETERAN_FEATURES,
+                "ppg_next",
+                order_col="next_season_actual",
+                quantile=q,
+                **({"sample_weight": weights} if weights is not None else {}),
+            )
+            test[f"pred_ppg_q{int(round(q * 100))}"] = predict(qtrained, test)
+
+        # Independent quantile models can cross; enforce monotonicity per row
+        # (pool-adjacent-violators style: sorting the row is a valid rearrangement).
+        qcols = [f"pred_ppg_q{int(round(q * 100))}" for q in sorted(quantiles)]
+        if len(qcols) > 1:
+            test[qcols] = np.sort(test[qcols].to_numpy(), axis=1)
+
         ev = test[test["eval_ok"] & test["ppg_next"].notna()]
         row = {
             "seasonId": Y,
@@ -111,9 +132,11 @@ def run_veteran_backtest(
                 top_features=", ".join(list(trained.feature_importance)[:5]),
             )
         season_rows.append(row)
-        predictions.append(
-            test[["playerId", "skaterFullName", "seasonId", "pred_season", "ppg_last1", "pred_ppg", "ppg_next", "gp_next", "eval_ok"]]
-        )
+        pred_cols = ["playerId", "skaterFullName", "seasonId", "pred_season", "ppg_last1",
+                     "pred_ppg", "ppg_next", "gp_next", "eval_ok"] + [
+            c for c in test.columns if c.startswith("pred_ppg_q")
+        ]
+        predictions.append(test[pred_cols])
         if verbose:
             print(
                 f"{season_label(Y)}: n={row['n_eval']:4d} "
@@ -205,6 +228,8 @@ def main() -> None:
     parser.add_argument("--refresh", action="store_true", help="re-pull NHL data")
     parser.add_argument("--veterans-only", action="store_true")
     parser.add_argument("--rookies-only", action="store_true")
+    parser.add_argument("--quantiles", action="store_true",
+                        help="also train q10/q50/q90 pinball-loss models (tail predictions)")
     args = parser.parse_args()
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -214,7 +239,8 @@ def main() -> None:
     rookies.to_parquet(OUTPUT_DIR / "rookie_features.parquet", index=False)
 
     if not args.rookies_only:
-        preds, seasons = run_veteran_backtest(veterans)
+        q = (0.1, 0.5, 0.9) if args.quantiles else ()
+        preds, seasons = run_veteran_backtest(veterans, quantiles=q)
         preds.to_parquet(OUTPUT_DIR / "veteran_predictions.parquet", index=False)
         seasons.to_csv(OUTPUT_DIR / "veteran_season_metrics.csv", index=False)
         ok = seasons.dropna(subset=["mae"])
