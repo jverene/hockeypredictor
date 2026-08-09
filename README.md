@@ -1,36 +1,53 @@
 # Hockey Career Trajectory Predictor
 
-A rolling-window ML system that predicts next-season Points Per Game (PPG) for NHL
-skaters using only historical box-score stats, with a dedicated rookie-prediction
-layer using NHL Equivalency (NHLe) to translate production across junior, college,
-AHL, KHL, and European leagues into a common currency.
+This system uses machine learning to predict hockey player performance.
+It predicts the Points Per Game (PPG) of NHL skaters for the next season.
+It uses only historical box-score statistics.
+It has a second model for rookie players.
+The rookie model uses NHL Equivalency (NHLe) factors.
+NHLe factors translate statistics from other leagues into NHL values.
 
-See `PRD.md` for the full product requirements.
+Refer to `PRD.md` for the full requirements.
+Refer to `WRITEUP.md` for the results.
 
 ## Quick start
+
+Do these steps to install and run the system:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-
-# Pull NHL data (cached under data/cache/)
-python -m src.data --refresh
-
-# Run the veteran + rookie backtests (1990-present, rolling 5-year window)
-python -m src.backtest
-
-# Launch the demo app
-streamlit run app.py
 ```
 
-## Layout
+Get the NHL data. The system caches the data in `data/cache/`:
 
-- `src/data.py` — NHL API ingestion + disk caching
-- `src/features.py` — veteran & rookie feature engineering (incl. NHLe factors)
-- `src/model.py` — XGBoost training wrappers (veteran / rookie modes)
-- `src/backtest.py` — rolling walk-forward backtest engine with leakage guards
-- `src/metrics.py` — evaluation metrics (MAE, RMSE, R², Spearman ρ, directional accuracy)
-- `app.py` — Streamlit demo: player search + career arc visualizations
-- `notebooks/eval.ipynb` — model evaluation and analysis
-- `WRITEUP.md` — project writeup
+```bash
+python -m src.backtest --quantiles
+```
+
+This command also runs the full backtest.
+The backtest covers the seasons 1990-91 to 2025-26.
+It uses a rolling 5-year training window.
+
+Run these commands for more analysis:
+
+```bash
+python -m src.tails             # Evaluate breakout and slump predictions
+python -m src.compare_windows   # Compare training window strategies
+pytest tests -q                 # Run the 14 unit tests
+streamlit run app.py            # Start the demo application
+```
+
+## File layout
+
+- `src/data.py` — Gets data from the NHL API. Caches the data on disk.
+- `src/features.py` — Makes the model features. Includes the NHLe factors.
+- `src/model.py` — Trains the XGBoost models. Supports quantile models.
+- `src/backtest.py` — Runs the walk-forward backtest. Prevents data leakage.
+- `src/metrics.py` — Calculates the evaluation metrics.
+- `src/tails.py` — Evaluates breakout and slump predictions.
+- `src/compare_windows.py` — Compares training window strategies.
+- `app.py` — Streamlit demo. Has player search and career charts.
+- `notebooks/eval.ipynb` — Evaluation notebook. Contains the full analysis.
+- `WRITEUP.md` — Results and findings.
