@@ -124,6 +124,43 @@ The model sees the tails. Two examples of correct upside calls: Lemieux
 PPG is above his personal q90 in five of seven seasons. He is a
 greater-than-90th-percentile player every year.
 
+## Do the best players always beat expectations? Yes.
+
+Question: is there a correlation between player quality and prediction
+deviation? Deviation is actual minus predicted PPG. The answer is yes. The
+correlation is large and significant.
+
+For 1,441 players with 6 or more backtested seasons: Spearman(career rating,
+mean deviation) = **0.589** (p ≈ 3×10⁻¹³⁵). The better the player, the more
+the model underpredicts him.
+
+The q90 data shows the structure. The table shows how often each tier beats
+its own 90th-percentile prediction:
+
+| Established rating (last-season PPG) | Beats own q90 |
+|---|---|
+| <0.25 | 9.8% (correctly calibrated) |
+| 0.45–0.65 | 13.4% |
+| 0.85–1.05 | 19.2% |
+| 1.05–1.25 | 21.7% |
+| **>1.25 (stars)** | **24.4%** |
+
+Depth players are correctly calibrated. Stars beat their supposed ceiling
+2.4 times too often. The career leaderboard of expectation-beaters (mean
+deviation per season, q90-beat rate): **Connor McDavid +0.45 (78%)**,
+**Nikita Kucherov +0.41 (89%)**, Leon Draisaitl +0.32 (70%), Nathan
+MacKinnon +0.30 (64%), Mario Lemieux +0.29 (38%), Sidney Crosby +0.22 (53%),
+Jaromir Jagr +0.19 (48%). Auston Matthews is the exception: +0.002. The
+model prices him correctly.
+
+The cause is symmetric loss. Mean-squared-error training treats an error of
+0.4 for McDavid the same as an error of 0.4 for any other player. There is
+one McDavid and thousands of other players. So the optimum moves toward the
+average. Mean reversion is correct for 99% of players. Therefore the model
+always prices greatness too low. The q90-beat rate is a free "greatness
+index": the players who beat their ceiling every year are, by definition,
+the great ones.
+
 ## Archetype predictability ranking
 
 Each player-season has a position, an age band, and a production tier. The
