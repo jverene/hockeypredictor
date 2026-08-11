@@ -161,6 +161,23 @@ always prices greatness too low. The q90-beat rate is a free "greatness
 index": the players who beat their ceiling every year are, by definition,
 the great ones.
 
+**The reverse also works: the model's most overrated players.** The same
+machinery finds the players who chronically deliver less than predicted.
+But the bias is asymmetric. Only 8% of high-rated players (≥0.8 PPG) have a
+negative mean deviation. And stars land below their q10 only 8.0% of the
+time (target: 10%). The pessimistic side of the model is correctly
+calibrated even for stars. The miscalibration is only at the ceiling.
+
+The chronic under-deliverers (6+ seasons): Pat Elynuik (−0.21 mean
+deviation), Elias Pettersson (−0.14, below his q10 in 33% of seasons),
+Patrik Laine (−0.14), Colby Armstrong (−0.14), Wojtek Wolski (−0.14). These
+cases almost always have a cause that box scores do not show. Elynuik:
+knee injuries. Pettersson: the model predicted the 100-point version after
+the decline started. Laine and Wolski: one-dimensional scorers who lost
+their role. The model is wrong about great players upward because they do
+things that never happened before. It is wrong about declining players
+downward because injuries and role loss are not in the data.
+
 ## Archetype predictability ranking
 
 Each player-season has a position, an age band, and a production tier. The
