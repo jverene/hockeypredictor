@@ -51,3 +51,19 @@ streamlit run app.py            # Start the demo application
 - `app.py` — Streamlit demo. Has player search and career charts.
 - `notebooks/eval.ipynb` — Evaluation notebook. Contains the full analysis.
 - `WRITEUP.md` — Results and findings.
+
+## Saved predictions
+
+Every prediction is saved in `data/output/` as CSV:
+
+- `veteran_predictions.csv` — 25,078 rows. One row per predicted player per
+  season (1990-91 to 2025-26). Has the mean prediction, the q10/q50/q90
+  quantile predictions, the actual result, and the evaluation flag.
+- `rookie_predictions.csv` — 3,072 rows. One row per rookie per draft class
+  (1990 to 2024). Has the prediction, the actual rookie PPG, and the draft
+  position.
+- `veteran_season_metrics.csv`, `rookie_class_metrics.csv` — Metrics per
+  season and per draft class.
+- `tail_predictions.csv`, `tail_metrics_by_season.csv` — Breakout and slump
+  evaluation data.
+- `window_comparison.csv` — The training-window A/B test results.
