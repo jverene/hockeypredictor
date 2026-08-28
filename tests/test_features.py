@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.features import (
     _norm_name,
@@ -101,10 +102,119 @@ def test_rookie_nhle_aggregation():
     rooks = build_rookie_features(_panel(), prenhl)
     r1 = rooks[rooks["playerId"] == 1].iloc[0]
     # EQ_PPG = (60*(70/60)*0.28 + 20*(15/20)*0.45) / 80
-    expected = (60 * (70 / 60) * 0.28 + 20 * (15 / 20) * 0.45) / 80
-    assert r1["eq_ppg"] == expected
+    expected = (70 * 0.28 + 15 * 0.45) / 80
+    assert r1["eq_ppg"] == pytest.approx(expected)
     assert r1["pre_gp"] == 80
     assert r1["top_league_level"] == 3  # AHL outranks OHL
+
+
+def test_rookie_nhle_multi_season_window():
+    # Alice: dominant 2008 season, then a 10-GP partial in 2009 (injury).
+    # The 3-year lookback keeps both; single-season matching would have seen
+    # only the partial year.
+    prenhl = pd.DataFrame(
+        {
+            "player_name": ["Alice Alpha", "Alice Alpha"],
+            "birth_date": ["1990-06-15", "1990-06-15"],
+            "season": [2008, 2009],
+            "league": ["OHL", "OHL"],
+            "team": ["X", "X"],
+            "gp": [60, 10],
+            "goals": [40, 3],
+            "assists": [50, 4],
+        }
+    )
+    rooks = build_rookie_features(_panel(), prenhl)
+    r1 = rooks[rooks["playerId"] == 1].iloc[0]
+    assert r1["eq_ppg"] == pytest.approx((90 * 0.28 + 7 * 0.28) / 70)  # GP-weighted
+    assert r1["pre_gp"] == 70
+    assert r1["prenhl_seasons"] == 2
+    assert r1["seasons_since_last_prenhl"] == 0
+    # Best *qualifying* season is the healthy 2008 one.
+    assert r1["eq_ppg_best"] == pytest.approx(90 * 0.28 / 60)
+    assert r1["age_x_eq_ppg"] == pytest.approx(r1["age"] * r1["eq_ppg"])
+    assert r1["draft_ovr_x_eq_ppg"] == pytest.approx(10 * r1["eq_ppg"])
+
+
+def test_rookie_gap_year_still_gets_nhle():
+    # Only pre-NHL data is from 2007; debut is 2010-11 (pre_year=2009).
+    # Exact-season matching produced all-NaN eq_* here; the window recovers it.
+    prenhl = pd.DataFrame(
+        {
+            "player_name": ["Alice Alpha"],
+            "birth_date": ["1990-06-15"],
+            "season": [2007],
+            "league": ["OHL"],
+            "team": ["X"],
+            "gp": [60],
+            "goals": [30],
+            "assists": [40],
+        }
+    )
+    rooks = build_rookie_features(_panel(), prenhl)
+    r1 = rooks[rooks["playerId"] == 1].iloc[0]
+    assert not np.isnan(r1["eq_ppg"])
+    assert r1["seasons_since_last_prenhl"] == 2
+
+
+def _panel_with_coffee():
+    skaters = _skaters()
+    extra = pd.DataFrame(
+        [
+            (3, "Cara Gamma", "C", 20102011, "TOR", 10, 2, 3, 5),
+            (3, "Cara Gamma", "C", 20112012, "TOR", 50, 15, 15, 30),
+        ],
+        columns=skaters.columns,
+    )
+    bios = pd.concat(
+        [
+            _bios(),
+            pd.DataFrame(
+                {
+                    "playerId": [3],
+                    "birthDate": ["1991-03-03"],
+                    "draftYear": [2009],
+                    "draftOverall": [55],
+                    "heightInInches": [71],
+                    "weightInPounds": [185],
+                }
+            ),
+        ],
+        ignore_index=True,
+    )
+    return build_player_seasons(pd.concat([skaters, extra], ignore_index=True), bios)
+
+
+def test_rookie_cup_of_coffee_features():
+    rooks = build_rookie_features(_panel_with_coffee(), pd.DataFrame())
+    r3 = rooks[rooks["playerId"] == 3].iloc[0]
+    assert r3["rookie_season"] == 20112012
+    assert bool(r3["had_cup_of_coffee"]) is True
+    assert r3["coffee_gp"] == 10
+    assert r3["coffee_ppg"] == pytest.approx(5 / 10)
+    # No pre-NHL frame: eq_* NaN but the NHL stint itself is known signal.
+    assert np.isnan(r3["eq_ppg"])
+    r1 = rooks[rooks["playerId"] == 1].iloc[0]
+    assert r1["coffee_gp"] == 0  # no earlier stint
+
+
+def test_rookie_era_context_uses_only_past_seasons():
+    rooks = build_rookie_features(_panel(), pd.DataFrame())
+    bob = rooks[rooks["playerId"] == 2].iloc[0]
+    # Bob's rookie year is 2011-12; among prior seasons the panel only has
+    # 2010-11 -> league PPG falls back to that single season.
+    assert bob["nhl_lg_ppg_prev"] == pytest.approx(50 / 80)
+
+
+def test_rookie_era_context_no_future_leakage():
+    panel = _panel()
+    leaked = panel.copy()
+    mask = (leaked["playerId"] == 1) & (leaked["seasonId"] == 20122013)
+    leaked.loc[mask, "points"] = leaked.loc[mask, "points"] * 20
+    base = build_rookie_features(panel, pd.DataFrame())
+    after = build_rookie_features(leaked, pd.DataFrame())
+    same = base["nhl_lg_ppg_prev"].fillna(-1).eq(after["nhl_lg_ppg_prev"].fillna(-1))
+    assert same.all()
 
 
 def test_name_normalization():
