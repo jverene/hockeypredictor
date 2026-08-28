@@ -14,7 +14,7 @@ difference is the information that scouts have and box scores do not have.
 | Goal (PRD §2) | Target | Result | Verdict |
 |---|---|---|---|
 | Veteran next-season PPG | MAE < 0.08 | **MAE 0.129** (baseline 0.154) | Target not met. Model is 16.4% better than the baseline in all 35 seasons |
-| Rookie-season PPG | Spearman ρ > 0.55 | **ρ = 0.503** (0.354 without NHLe data) | Target almost met. ρ > 0.55 in 13 of 35 draft classes |
+| Rookie-season PPG | Spearman ρ > 0.55 | **ρ = 0.542** (0.503 before the robustness rework) | Target almost met. ρ > 0.55 in 15 of 35 classes; 30 of 35 classes improved by the rework |
 | Leak-free backtest 1990–2026 | rolling 5-year walk-forward | 35 veteran seasons and 35 draft classes | Met |
 | Steals list | top-10 undervalued players | produced | Met |
 | Streamlit demo | live application | `streamlit run app.py` | Met |
@@ -235,17 +235,27 @@ historical data. This list shows the limit of the box-score approach.
 
 The rookie layer uses NHLe-translated pre-NHL production. The data comes
 from the NHL API player biographies. There are 53,561 junior, college, and
-European stints in 12 leagues. EliteProspects was not necessary. Refer to
+European stints in 12 leagues. EliteProspects was not necessary. The model
+aggregates NHLe over a 3-year lookback window (not just the single
+immediately-preceding season), so injury-shortened or COVID-cancelled
+seasons no longer erase a player's entire pre-NHL history. A cup-of-coffee
+feature captures earlier NHL stints — known at prediction time but
+previously discarded. League-wide NHL scoring context from the two seasons
+before the rookie year acts as an era adjustment (the veteran model had
+`era_adj_factor`; the rookie model had nothing). Refer to
 Limitations for the details.
 
 **The marquee test cases:** the model used only data available before each
-draft class. It predicted **Connor Bedard at 0.850 PPG (actual: 0.897)**,
-**Auston Matthews at 0.794 (actual: 0.841)**, **Connor McDavid at 0.779
-(actual: 1.067)**, and **Macklin Celebrini at 0.719 (actual: 0.900)**.
-Without the NHLe features, Bedard and Celebrini both get 0.67. That is the
-historical average for a #1-overall pick. Draft position is all the model
-can see without NHLe. The 143-point WHL season is the difference between
-Bedard and Alexandre Daigle. NHLe is how the model sees this difference.
+draft class. It predicted **Connor Bedard at 0.748 PPG (actual: 0.897)**,
+**Auston Matthews at 0.689 (actual: 0.841)**, **Connor McDavid at 0.731
+(actual: 1.067)**, and **Macklin Celebrini at 0.621 (actual: 0.900)**.
+The predictions remain conservative for the top outliers — mean reversion
+is correct for 99% of players — but the gap between model and actual is
+narrower than before: without the NHLe features, Bedard and Celebrini both
+get 0.67. That is the historical average for a #1-overall pick. Draft
+position is all the model can see without NHLe. The 143-point WHL season
+is the difference between Bedard and Alexandre Daigle. NHLe is how the
+model sees this difference.
 
 **Steals that delivered** (predicted much above the draft-position
 expectation, and the player delivered): **Miroslav Satan** (111th pick,
@@ -258,8 +268,10 @@ Niederreiter** (5th, predicted 0.34, actual 0.02), **Alek Stojanov** (7th,
 (4th, 0.22 → 0.03).
 
 The rookie model is also the honesty checkpoint of the project. The mean ρ
-of 0.503 does not meet the PRD target of 0.55. But 13 of 35 classes meet it.
-The difference between the model and scouts is the information that box
+of 0.542 does not meet the PRD target of 0.55. But 15 of 35 classes meet it,
+and 30 of 35 classes improved by the robustness rework (from 0.503 to 0.542).
+The model beats the draft-position baseline (mean PPG by pick bucket) by
+26.5% in MAE. The remaining gap is the information that scouts have and box
 scores do not have: skating, hockey sense, medical results, and interviews.
 Draft position is a proxy for scout consensus. It stays one of the top
 features. This shows that the scout information is real.
@@ -287,12 +299,15 @@ features. This shows that the scout information is real.
 
 ```bash
 pip install -r requirements.txt
-python -m src.backtest --quantiles  # Get data and run both backtests
-python -m src.tails                 # Evaluate breakouts and slumps
-python -m src.compare_windows       # Training-window A/B test
+python -m src.backtest --quantiles            # Get data and run both backtests
+python -m src.backtest --rookies-only         # Rookie-only with draft baseline
+python -m src.backtest --rookie-window 15     # Restrict rookie training to last 15 years
+python -m src.backtest --rookie-decay 0.90    # Recency decay for rookie training
+python -m src.tails                           # Evaluate breakouts and slumps
+python -m src.compare_windows                 # Training-window A/B test (veteran)
 jupyter nbconvert --execute notebooks/eval.ipynb
 streamlit run app.py
-pytest tests -q                     # 14 tests, includes leakage tests
+pytest tests -q                               # 21 tests, includes rookie robustness tests
 ```
 
 *Stack: Python 3.12, XGBoost, scikit-learn, pandas, SHAP, Streamlit, Plotly.
