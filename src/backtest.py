@@ -27,11 +27,12 @@ from .constants import (
     LAST_BACKTEST_SEASON,
     MIN_TARGET_GP,
     SHORTENED_SEASONS,
+    UNDRAFTED_OVR,
     season_label,
     season_window,
 )
 from .features import ROOKIE_FEATURES, VETERAN_FEATURES
-from .metrics import mae, r2, rmse, spearman, directional_accuracy
+from .metrics import mae, r2, rmse, spearman, directional_accuracy, interval_coverage
 from .model import predict, train_model
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent / "data" / "output"
@@ -147,13 +148,36 @@ def run_veteran_backtest(
     return pd.concat(predictions, ignore_index=True), pd.DataFrame(season_rows)
 
 
+def _draft_baseline(train: pd.DataFrame, test: pd.DataFrame) -> pd.Series:
+    """Draft-position expectation baseline (PRD §5.1): mean rookie PPG of
+    each draft bucket among *earlier* classes only — leak-free."""
+    bins = [0, 5, 10, 31, 62, 100, UNDRAFTED_OVR]
+    labels = ["1-5", "6-10", "11-31", "32-62", "63-100", "101+"]
+    base = train.dropna(subset=["ppg_rookie"])
+    means = base.groupby(pd.cut(base["draft_ovr"], bins=bins, labels=labels),
+                         observed=True)["ppg_rookie"].mean()
+    global_mean = base["ppg_rookie"].mean()
+    bucket = pd.cut(test["draft_ovr"], bins=bins, labels=labels)
+    return bucket.map(means).fillna(global_mean)
+
+
 def run_rookie_backtest(
     rookies: pd.DataFrame,
     first_class: int = ROOKIE_FIRST_CLASS,
     last_class: int = ROOKIE_LAST_CLASS,
+    window: int | None = None,
+    recency_decay: float | None = None,
+    quantiles: tuple[float, ...] = (),
     verbose: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Walk-forward rookie backtest by draft class. Returns (predictions, metrics)."""
+    """Walk-forward rookie backtest by draft class. Returns (predictions, metrics).
+
+    window=None trains on all earlier classes (expanding); an int restricts
+    training to rookies who debuted within that many years of the class.
+    recency_decay applies exponential sample weights by debut-season age.
+    quantiles additionally train pinball-loss models per class and add
+    pred_ppg_qXX columns (q90−q50 spread = upside score for steals lists).
+    """
     df = rookies.copy()
     df["class_year"] = df["draft_year"].fillna(df["rookie_season"] // 10000)
 
@@ -161,35 +185,74 @@ def run_rookie_backtest(
     class_rows: list[dict] = []
 
     for D in range(first_class, last_class + 1):
+        target_season = D * 10000 + D + 1
         train = df[df["class_year"] < D]
+        if window is not None:
+            train = train[train["rookie_season"] // 10000 > D - 1 - window]
         test = df[df["class_year"] == D]
         if len(train) < 30 or test.empty:
             continue
 
-        trained = train_model(train, ROOKIE_FEATURES, "ppg_rookie", order_col="rookie_season")
+        weights = None
+        if recency_decay is not None:
+            years_back = (target_season - train["rookie_season"]) / 10001.0
+            weights = recency_decay ** years_back
+
+        trained = train_model(
+            train,
+            ROOKIE_FEATURES,
+            "ppg_rookie",
+            order_col="rookie_season",
+            **({"sample_weight": weights} if weights is not None else {}),
+        )
         test = test.copy()
         test["pred_ppg"] = predict(trained, test)
+        test["pred_baseline"] = _draft_baseline(train, test)
 
+        for q in quantiles:
+            qtrained = train_model(
+                train,
+                ROOKIE_FEATURES,
+                "ppg_rookie",
+                order_col="rookie_season",
+                quantile=q,
+                **({"sample_weight": weights} if weights is not None else {}),
+            )
+            test[f"pred_ppg_q{int(round(q * 100))}"] = predict(qtrained, test)
+
+        # Enforce monotone quantile curves per row (rearrangement).
+        qcols = [f"pred_ppg_q{int(round(q * 100))}" for q in sorted(quantiles)]
+        if len(qcols) > 1:
+            test[qcols] = np.sort(test[qcols].to_numpy(), axis=1)
+
+        ev = test[test["ppg_rookie"].notna()]
         row = {
             "draft_class": D,
             "n_eval": len(test),
             "n_train": len(train),
             "mae": mae(test["ppg_rookie"], test["pred_ppg"]),
+            "mae_baseline": mae(test["ppg_rookie"], test["pred_baseline"]),
             "rmse": rmse(test["ppg_rookie"], test["pred_ppg"]),
             "spearman": spearman(test["ppg_rookie"], test["pred_ppg"]),
             "top_features": ", ".join(list(trained.feature_importance)[:5]),
         }
+        if len(ev) > 1 and len(qcols) >= 2:
+            row["interval_coverage_80"] = interval_coverage(
+                ev["ppg_rookie"],
+                ev[f"pred_ppg_q{int(round(sorted(quantiles)[0] * 100))}"],
+                ev[f"pred_ppg_q{int(round(sorted(quantiles)[-1] * 100))}"],
+            )
         class_rows.append(row)
-        predictions.append(
-            test[
-                [
-                    "playerId", "skaterFullName", "draft_year", "draft_ovr", "rookie_season",
-                    "age", "pred_ppg", "ppg_rookie",
-                ]
-            ]
-        )
+        pred_cols = [
+            "playerId", "skaterFullName", "draft_year", "draft_ovr", "rookie_season",
+            "age", "pred_ppg", "pred_baseline", "ppg_rookie",
+        ] + qcols
+        predictions.append(test[pred_cols])
         if verbose:
-            print(f"draft {D}: n={row['n_eval']:3d} MAE={row['mae']:.4f} rho={row['spearman']:.3f}")
+            print(
+                f"draft {D}: n={row['n_eval']:3d} MAE={row['mae']:.4f} "
+                f"(baseline {row['mae_baseline']:.4f}) rho={row['spearman']:.3f}"
+            )
 
     return pd.concat(predictions, ignore_index=True), pd.DataFrame(class_rows)
 
@@ -228,6 +291,10 @@ def main() -> None:
     parser.add_argument("--refresh", action="store_true", help="re-pull NHL data")
     parser.add_argument("--veterans-only", action="store_true")
     parser.add_argument("--rookies-only", action="store_true")
+    parser.add_argument("--rookie-window", type=int, default=None,
+                        help="restrict rookie training to debuts within N years of the class")
+    parser.add_argument("--rookie-decay", type=float, default=None,
+                        help="exponential recency weight per season for rookie training")
     parser.add_argument("--quantiles", action="store_true",
                         help="also train q10/q50/q90 pinball-loss models (tail predictions)")
     args = parser.parse_args()
@@ -249,11 +316,22 @@ def main() -> None:
               f"dir.acc={ok['directional_accuracy'].mean():.3f}")
 
     if not args.veterans_only:
-        preds, classes = run_rookie_backtest(rookies)
+        q = (0.1, 0.5, 0.9) if args.quantiles else ()
+        preds, classes = run_rookie_backtest(
+            rookies,
+            window=args.rookie_window,
+            recency_decay=args.rookie_decay,
+            quantiles=q,
+        )
         preds.to_parquet(OUTPUT_DIR / "rookie_predictions.parquet", index=False)
         classes.to_csv(OUTPUT_DIR / "rookie_class_metrics.csv", index=False)
-        print(f"\nRookie backtest: MAE={classes['mae'].mean():.4f}, "
-              f"Spearman rho={classes['spearman'].mean():.3f}")
+        ok = classes.dropna(subset=["mae"])
+        print(f"\nRookie backtest: MAE={ok['mae'].mean():.4f} "
+              f"(draft baseline {ok['mae_baseline'].mean():.4f}), "
+              f"Spearman rho={ok['spearman'].mean():.3f}, "
+              f"classes rho>0.55: {(ok['spearman'] > 0.55).sum()}/{len(ok)}")
+        if "interval_coverage_80" in ok:
+            print(f"80% interval coverage: {ok['interval_coverage_80'].mean():.3f}")
 
 
 if __name__ == "__main__":
