@@ -19,6 +19,7 @@ from .constants import (
     NHLE_FACTORS,
     UNDRAFTED_OVR,
     next_season,
+    prev_season,
 )
 
 VETERAN_FEATURES = [
@@ -45,18 +46,33 @@ ROOKIE_FEATURES = [
     "eq_ppg",
     "eq_gpg",
     "eq_apg",
+    "eq_ppg_best",
     "pre_gp",
+    "prenhl_seasons",
+    "seasons_since_last_prenhl",
     "top_league_level",
+    "had_cup_of_coffee",
+    "coffee_gp",
+    "coffee_ppg",
     "age",
     "age_sq",
     "age_vs_league_avg",
+    "age_x_eq_ppg",
+    "draft_ovr_x_eq_ppg",
     "draft_ovr",
-    "draft_year",
+    "is_undrafted",
     "years_post_draft",
+    "draft_year",
     "is_defense",
     "height",
     "weight",
+    "nhl_lg_ppg_prev",
 ]
+
+# Pre-NHL production window: the ROOKIE_PRE_WINDOW calendar seasons before
+# the rookie year, not just the single immediately-preceding season (gap
+# years from injury/cancelled seasons previously nuked all eq_* features).
+ROOKIE_PRE_WINDOW = 3
 
 PEAK_AGE = 26.0
 
@@ -213,9 +229,24 @@ def _league_avg_ages(prenhl: pd.DataFrame) -> pd.DataFrame:
 def build_rookie_features(player_seasons: pd.DataFrame, prenhl: pd.DataFrame) -> pd.DataFrame:
     """Feature rows for first-year NHL players (PRD §4.2).
 
-    Rookie season = first NHL season with >= MIN_TARGET_GP games. Pre-NHL
-    production is translated via NHLe factors; when pre-NHL data is missing
-    the eq_* features are NaN (XGBoost handles NaN natively).
+    Rookie season = first NHL season with >= MIN_TARGET_GP games. Every feature
+    uses only information available *before* that season:
+
+      - NHLe-weighted pre-NHL production over the ROOKIE_PRE_WINDOW calendar
+        seasons before the rookie year (GP-weighted, so partial seasons are
+        down-weighted instead of dropped), plus a best-single-season eq_ppg
+        and a gap-year feature (`seasons_since_last_prenhl`) so an injured or
+        cancelled final junior season no longer erases a player's history.
+      - Cup-of-coffee aggregates from earlier NHL stints — known at
+        prediction time, yet previously discarded (the NHL stint is excluded
+        from the pre-NHL frame).
+      - Era context: league-wide NHL PPG across the two seasons before the
+        rookie year (rookie targets shift with scoring environment; the
+        veteran model had `era_adj_factor`, the rookie model nothing).
+      - Interactions `age × eq_ppg` and `draft_ovr × eq_ppg`.
+
+    When pre-NHL data is missing entirely the eq_* features stay NaN
+    (XGBoost handles NaN natively).
     """
     df = player_seasons.copy()
     df["ppg"] = df["points"] / df["gp"]
@@ -233,22 +264,58 @@ def build_rookie_features(player_seasons: pd.DataFrame, prenhl: pd.DataFrame) ->
     rookies = rookies.merge(first_ever, on="playerId", how="left")
     rookies["had_cup_of_coffee"] = rookies["rookie_season"] > rookies["first_nhl_season"]
 
+    # Production from those earlier NHL stints (per-game rates, summed GP).
+    prior_nhl = rookies[["playerId", "rookie_season"]].merge(
+        df[["playerId", "seasonId", "gp", "points"]], on="playerId", how="left"
+    )
+    prior_nhl = prior_nhl[prior_nhl["seasonId"] < prior_nhl["rookie_season"]]
+    coffee = prior_nhl.groupby("playerId").agg(
+        coffee_gp=("gp", "sum"),
+        coffee_pts=("points", "sum"),
+        coffee_seasons=("seasonId", "nunique"),
+    )
+    coffee["coffee_ppg"] = np.where(
+        coffee["coffee_gp"] > 0, coffee["coffee_pts"] / coffee["coffee_gp"], np.nan
+    )
+    rookies = rookies.merge(coffee.drop(columns="coffee_pts"), on="playerId", how="left")
+    rookies["coffee_gp"] = rookies["coffee_gp"].fillna(0)
+
+    # Era context: NHL league-wide PPG in the two seasons before the rookie
+    # year (prev_season skips the cancelled 2004-05).
+    lg = (
+        df.groupby("seasonId")
+        .apply(lambda g: g["points"].sum() / g["gp"].sum(), include_groups=False)
+        .rename("nhl_lg_ppg")
+    )
+    ctx1 = rookies["rookie_season"].map(prev_season)
+    rookies["nhl_lg_ppg_prev"] = pd.concat(
+        [ctx1.map(lg), ctx1.map(prev_season).map(lg)], axis=1
+    ).mean(axis=1)  # skips NaN: falls back to the single available season
+
     rookies["age"] = _age_at_season_start(rookies["birthDate"], rookies["seasonId"])
     rookies["age_sq"] = rookies["age"] ** 2
     rookies["draft_ovr"] = rookies["draftOverall"].fillna(UNDRAFTED_OVR)
+    rookies["is_undrafted"] = rookies["draftOverall"].isna().astype(int)
     rookies["draft_year"] = rookies["draftYear"]
     rookies["years_post_draft"] = (rookies["seasonId"] // 10000) - rookies["draft_year"]
     rookies["height"] = rookies["heightInInches"]
     rookies["weight"] = rookies["weightInPounds"]
     rookies["ppg_rookie"] = rookies["ppg"]
 
+    eq_cols = [
+        "eq_ppg", "eq_gpg", "eq_apg", "eq_ppg_best", "pre_gp",
+        "prenhl_seasons", "seasons_since_last_prenhl", "top_league_level",
+        "age_vs_league_avg",
+    ]
     if prenhl.empty:
-        for col in ["eq_ppg", "eq_gpg", "eq_apg", "pre_gp", "top_league_level", "age_vs_league_avg"]:
+        for col in eq_cols:
             rookies[col] = np.nan
         rookies.loc[rookies["had_cup_of_coffee"], "top_league_level"] = LEAGUE_LEVELS["NHL"]
+        rookies["age_x_eq_ppg"] = rookies["age"] * rookies["eq_ppg"]
+        rookies["draft_ovr_x_eq_ppg"] = rookies["draft_ovr"] * rookies["eq_ppg"]
         return rookies.reset_index(drop=True)
 
-    # NHLe-weighted pre-NHL production from the season before the rookie year.
+    # NHLe-weighted pre-NHL production over a multi-season lookback window.
     pre = prenhl.copy()
     pre["key"] = pre["player_name"].map(_norm_name) + "|" + pd.to_datetime(
         pre["birth_date"], errors="coerce"
@@ -256,7 +323,10 @@ def build_rookie_features(player_seasons: pd.DataFrame, prenhl: pd.DataFrame) ->
     pre["points"] = pre["goals"] + pre["assists"]
     pre["league"] = pre["league"].astype(str).str.upper().map(lambda l: LEAGUE_ALIASES.get(l, l))
     pre["nhle"] = pre["league"].map(NHLE_FACTORS)
-    pre = pre[(pre["gp"] >= MIN_PRENHL_GP) & pre["nhle"].notna()]
+    # Keep short/partial seasons: GP weighting down-weights them naturally
+    # (dropping them used to zero out players after an injury or a cancelled
+    # season entirely).
+    pre = pre[(pre["gp"] > 0) & pre["nhle"].notna()]
 
     rookies["key"] = rookies["skaterFullName"].map(_norm_name) + "|" + pd.to_datetime(
         rookies["birthDate"], errors="coerce"
@@ -264,46 +334,86 @@ def build_rookie_features(player_seasons: pd.DataFrame, prenhl: pd.DataFrame) ->
     rookies["pre_year"] = (rookies["seasonId"] // 10000) - 1
 
     merged = pre.merge(
-        rookies[["playerId", "key", "pre_year", "had_cup_of_coffee"]],
-        left_on=["key", "season"],
-        right_on=["key", "pre_year"],
+        rookies[["playerId", "key", "pre_year"]],
+        left_on=["key"],
+        right_on=["key"],
         how="inner",
     )
+    merged = merged[
+        (merged["season"] <= merged["pre_year"])
+        & (merged["season"] > merged["pre_year"] - ROOKIE_PRE_WINDOW)
+    ]
 
     def _eq(g2: pd.DataFrame, stat: str) -> float:
-        return float((g2["gp"] * (g2[stat] / g2["gp"]) * g2["nhle"]).sum() / g2["gp"].sum())
+        return float((g2[stat] * g2["nhle"]).sum() / g2["gp"].sum())
+
+    def _agg(g2: pd.DataFrame) -> pd.Series:
+        # Only substantial seasons set the ordinal league level (a 2-game KHL
+        # call-up should not read as "KHL player").
+        full = g2[g2["gp"] >= MIN_PRENHL_GP]
+        return pd.Series(
+            {
+                "eq_ppg": _eq(g2, "points"),
+                "eq_gpg": _eq(g2, "goals"),
+                "eq_apg": _eq(g2, "assists"),
+                "pre_gp": g2["gp"].sum(),
+                "top_league_level": full["league"].astype(str).str.upper()
+                .map(LEAGUE_LEVELS).max(),
+                "prenhl_seasons": g2["season"].nunique(),
+                "last_prenhl_season": g2["season"].max(),
+            }
+        )
 
     agg = (
         merged.groupby("playerId")
-        .apply(
-            lambda g2: pd.Series(
-                {
-                    "eq_ppg": _eq(g2, "points"),
-                    "eq_gpg": _eq(g2, "goals"),
-                    "eq_apg": _eq(g2, "assists"),
-                    "pre_gp": g2["gp"].sum(),
-                    "top_league_level": g2["league"].astype(str).str.upper().map(LEAGUE_LEVELS).max(),
-                }
-            ),
-            include_groups=False,
-        )
+        .apply(_agg, include_groups=False)
         .reset_index()
     )
     rookies = rookies.merge(agg, on="playerId", how="left")
     rookies.loc[rookies["had_cup_of_coffee"], "top_league_level"] = LEAGUE_LEVELS["NHL"]
 
+    # Best single pre-NHL season (substantial samples only) — captures peak
+    # talent even when the final season was disrupted.
+    per_season = (
+        merged.assign(eq_pts=merged["points"] * merged["nhle"])
+        .groupby(["playerId", "season"])
+        .agg(eq_pts=("eq_pts", "sum"), gp=("gp", "sum"))
+        .reset_index()
+    )
+    best = (
+        per_season[per_season["gp"] >= MIN_PRENHL_GP]
+        .assign(season_eq_ppg=lambda d: d["eq_pts"] / d["gp"])
+        .groupby("playerId")["season_eq_ppg"]
+        .max()
+        .rename("eq_ppg_best")
+        .reset_index()
+    )
+    rookies = rookies.merge(best, on="playerId", how="left")
+
+    # Gap years since meaningful pre-NHL action (0 = played the season right
+    # before the debut; NaN = no usable pre-NHL data at all).
+    rookies["seasons_since_last_prenhl"] = (
+        rookies["pre_year"] - rookies["last_prenhl_season"]
+    )
+    rookies.drop(columns=["last_prenhl_season"], inplace=True)
+
     avg_ages = _league_avg_ages(prenhl)
     if not avg_ages.empty:
-        pre_league = (
-            merged[["playerId", "league", "season"]]
-            .drop_duplicates("playerId")
-            .merge(avg_ages, on=["league", "season"], how="left")
+        # Most recent league-season in the window defines the age context.
+        recent = (
+            merged.sort_values("season")
+            .groupby("playerId", as_index=False)
+            .tail(1)[["playerId", "league", "season"]]
         )
+        pre_league = recent.merge(avg_ages, on=["league", "season"], how="left")
         rookies = rookies.merge(
             pre_league[["playerId", "league_avg_age"]], on="playerId", how="left"
         )
         rookies["age_vs_league_avg"] = rookies["age"] - rookies["league_avg_age"]
     else:
         rookies["age_vs_league_avg"] = np.nan
+
+    rookies["age_x_eq_ppg"] = rookies["age"] * rookies["eq_ppg"]
+    rookies["draft_ovr_x_eq_ppg"] = rookies["draft_ovr"] * rookies["eq_ppg"]
 
     return rookies.reset_index(drop=True)
